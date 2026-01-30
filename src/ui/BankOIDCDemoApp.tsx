@@ -1,19 +1,57 @@
+/**
+ * BankOIDCDemoApp - Main React component for banking OIDC demo
+ *
+ * This component demonstrates:
+ * - OIDC/PKCE authentication flow with WSO2 Identity Server
+ * - OAuth2 token management and refresh
+ * - Fetching account and transaction data from APIs
+ * - Email OTP authentication for transaction authorization
+ * - Floating chat assistant for transaction inquiries
+ *
+ * The component manages multiple auth flows:
+ * 1. Standard PKCE authorization code flow
+ * 2. Email OTP flow for transaction authorization
+ * 3. Token refresh mechanism
+ */
+
 import React, { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { Loader2, LogIn, LogOut, RefreshCcw, ShieldCheck } from "lucide-react";
 import { OIDC_CONFIG as C, API_CONFIG } from "../config";
 import { fetchAccounts, Account } from "../api";
+import { ChatPanel } from "./ChatPanel";
 
+/**
+ * PKCE Helper Functions
+ * These functions implement the PKCE (Proof Key for Public Clients) OAuth2 extension
+ * Required for secure authorization in public/browser-based apps
+ */
+
+/**
+ * Converts ArrayBuffer to Base64URL encoded string
+ * Used for encoding PKCE code challenge
+ */
 function base64UrlEncode(arrayBuffer: ArrayBuffer) {
   const uint8Array = new Uint8Array(arrayBuffer);
   let base64 = btoa(String.fromCharCode(...uint8Array));
   return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
+
+/**
+ * Creates SHA-256 hash of PKCE code verifier
+ * Used to generate code_challenge from code_verifier
+ */
 async function sha256(buffer: string) {
   const data = new TextEncoder().encode(buffer);
   const digest = await crypto.subtle.digest("SHA-256", data);
   return base64UrlEncode(digest);
 }
+
+/**
+ * Generates cryptographically random string for PKCE code_verifier
+ * @param length - Length of random string (default 43)
+ * @returns Random string using unreserved URL-safe characters
+ */
 function randomString(length = 43) {
   const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
   let result = "";
@@ -21,32 +59,55 @@ function randomString(length = 43) {
   for (let i = 0; i < length; i++) result += charset[values[i] % charset.length];
   return result;
 }
+
+/**
+ * Session Storage Helpers
+ * Safely save/load data from browser sessionStorage
+ */
+
+/**
+ * Save value to sessionStorage with error handling
+ * @param key - Storage key
+ * @param value - Value to store (will be JSON serialized)
+ */
 function saveSession(key: string, value: any) { try { sessionStorage.setItem(key, JSON.stringify(value)); } catch {} }
+
+/**
+ * Load value from sessionStorage with fallback
+ * @param key - Storage key
+ * @param fallback - Value to return if key not found or parse fails
+ */
 function loadSession(key: string, fallback: any = null) {
   try { const v = sessionStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; }
 }
 
+/**
+ * Main App Component
+ */
 export default function BankOIDCDemoApp() {
-  const [error, setError] = useState("");
-  const [tokens, setTokens] = useState<any>(() => loadSession("tokens"));
-  const [userInfo, setUserInfo] = useState<any>(null);
-  const [accounts, setAccounts] = useState<Account[] | null>(null);
-  const [refreshingAccounts, setRefreshingAccounts] = useState<Set<string>>(new Set());
-  const exchangingRef = useRef(false);
+  // ===== Authentication State =====
+  const [error, setError] = useState("");                           // Error message display
+  const [tokens, setTokens] = useState<any>(() => loadSession("tokens")); // OAuth tokens (access, refresh, id)
+  const [userInfo, setUserInfo] = useState<any>(null);             // User profile from /userinfo endpoint
+  const exchangingRef = useRef(false);                             // Prevent duplicate token exchanges
 
-  // New: transactions state and loading flag
+  // ===== Account Data State =====
+  const [accounts, setAccounts] = useState<Account[] | null>(null); // Array of bank accounts
+  const [refreshingAccounts, setRefreshingAccounts] = useState<Set<string>>(new Set()); // Accounts being refreshed
+
+  // ===== Transaction Data State =====
   type Tx = { Date: string; Description: string; Amount: number };
-  const [transactions, setTransactions] = useState<Tx[] | null>(null);
-  const [txLoading, setTxLoading] = useState(false);
+  const [transactions, setTransactions] = useState<Tx[] | null>(null); // Recent transactions list
+  const [txLoading, setTxLoading] = useState(false);                  // Loading state for transaction fetch
 
-  // New: email OTP UI state
-  const [otpVisible, setOtpVisible] = useState(false);
-  const [otpValue, setOtpValue] = useState("");
-  const [otpRequesting, setOtpRequesting] = useState(false);
-  const [otpError, setOtpError] = useState<string | null>(null);
-  const [otpResponse, setOtpResponse] = useState<any>(null);
-  const [transactionSuccess, setTransactionSuccess] = useState(false);
-  const [transactionsExpanded, setTransactionsExpanded] = useState(true);
+  // ===== Email OTP Flow State (for transaction authorization) =====
+  const [otpVisible, setOtpVisible] = useState(false);             // Show/hide OTP input
+  const [otpValue, setOtpValue] = useState("");                    // User-entered OTP code
+  const [otpRequesting, setOtpRequesting] = useState(false);       // Loading state for OTP operations
+  const [otpError, setOtpError] = useState<string | null>(null);  // OTP-specific error
+  const [otpResponse, setOtpResponse] = useState<any>(null);       // OTP flow metadata (flowId, authenticatorId)
+  const [transactionSuccess, setTransactionSuccess] = useState(false); // Success flag after OTP exchange
+  const [transactionsExpanded, setTransactionsExpanded] = useState(true); // Collapse/expand UI state
 
   // Fetch userinfo + accounts when tokens available
   useEffect(() => {
@@ -727,9 +788,32 @@ export default function BankOIDCDemoApp() {
         </motion.aside>
       </main>
 
+      {/* Footer */}
       <footer style={{ textAlign: "center", fontSize: 12, color: "#94a3b8", padding: "24px" }}>
         Demo only: do not use as-is in production.
       </footer>
+
+      {/* ===== Chat Panel Integration =====
+          * Floating chat assistant positioned in bottom-right corner
+          * Shows as minimized blue button (56x56px) until user clicks to expand
+          * Only visible when user is authenticated (passes access_token)
+          * Integrates with local chat API (http://localhost:3002/chat)
+          * Uses OAuth bearer token for authentication to API
+          * Features:
+          *   - Local keyword analysis of user prompts
+          *   - Automatic APIM MCP call for transaction data when needed
+          *   - Real-time chat interface with message history
+          *   - Error handling and loading states
+      */}
+      <div style={{
+        position: "fixed",          // Fixed positioning relative to viewport
+        bottom: "20px",             // 20px from bottom edge
+        right: "20px",              // 20px from right edge
+        zIndex: 1000,               // Above all other content
+      }}>
+        {/* ChatPanel Component - Only renders if user is logged in and has access_token */}
+        <ChatPanel accessToken={tokens?.access_token || null} />
+      </div>
     </div>
   );
 }
