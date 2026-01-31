@@ -1,13 +1,30 @@
-# Bank OIDC + APIM Demo — npm only (fixed endpoint)
+# Insurance OIDC Demo — Complete Insurance Management Platform
 
-This React + Vite app demonstrates **OpenID Connect (OIDC)** authentication with **WSO2 Identity Server (IS)** using Authorization Code + PKCE flow, followed by secure API calls to **WSO2 API Manager (APIM)** with bearer tokens.
+This React + Vite application demonstrates **OpenID Connect (OIDC)** authentication with **WSO2 Identity Server (IS)**, secure API calls through **WSO2 API Manager (APIM)**, and an integrated **AI-powered chat assistant** for vehicle and insurance policy inquiries.
+
+The platform enables users to manage vehicle registration, obtain insurance quotes, purchase policies with email OTP authentication, and interact with an intelligent chat assistant that retrieves real-time policy information via MCP servers.
 
 ## Quick Start
 
+### Start All Services (React App + Chat Backend)
+
 ```bash
 npm install
+npm run dev:all
+# React app: http://localhost:5173
+# Chat API: http://localhost:3002
+```
+
+### Or Run Services Separately
+
+```bash
+# Terminal 1: React application
 npm run dev
-# open http://localhost:5173
+# Runs on http://localhost:5173
+
+# Terminal 2: Chat API backend
+npm run dev:chat
+# Runs on http://localhost:3002
 ```
 
 ## Configuration
@@ -180,13 +197,340 @@ Since both IS and APIM use self-signed certificates:
 
 ---
 
+## Architecture Overview
+
+### System Components
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    React Application                         │
+│         (Vite dev server on port 5173)                      │
+├─────────────────────────────────────────────────────────────┤
+│  - Insurance Demo App (main UI)                             │
+│  - Chat Panel Component (collapsible chat UI)               │
+│  - OIDC Authentication (PKCE flow)                          │
+│  - Vehicle & Quote Management                              │
+└────────────┬──────────────────────┬──────────────────────────┘
+             │                      │
+             │ (Bearer Token)       │ (Bearer Token)
+             ▼                      ▼
+     ┌──────────────────────────────────────────────┐
+     │  WSO2 Identity Server (IS)                   │
+     │     (https://localhost:9444)                  │
+     │  - OIDC/PKCE Authorization                   │
+     │  - Token Generation & Refresh                │
+     │  - Email OTP Authentication                  │
+     │  - User Profile Management                   │
+     └──────────────────────────────────────────────┘
+             │
+             │ (Bearer Token)
+             ▼
+     ┌──────────────────────────────────────────────┐
+     │  WSO2 API Manager (APIM)                     │
+     │     (https://localhost:8243)                  │
+     │  - Vehicle API Gateway                       │
+     │  - Insurance Quote API                       │
+     │  - Policy Purchase API                       │
+     │  - MCP Server Integration                    │
+     └────────┬─────────────────────────────────────┘
+              │
+              │ (MCP Call)
+              ▼
+     ┌──────────────────────────────────────────────┐
+     │  Backend MCP Server                          │
+     │  - Get Vehicles Information                  │
+     │  - Get Insurance Quotes                      │
+     │  - Get Policy Details                        │
+     └──────────────────────────────────────────────┘
+             ▲
+             │ (Backend API Call)
+             │
+     ┌──────────────────────────────────────────────┐
+     │  Chat API Server (Node.js/Express)           │
+     │     (http://localhost:3002)                   │
+     │  - /chat endpoint (POST)                     │
+     │  - Policy keyword detection                  │
+     │  - MCP server integration                    │
+     │  - Response generation                       │
+     └──────────────────────────────────────────────┘
+```
+
 ## App Features
 
-- **Login Flow**: OpenID Connect with PKCE Authorization Code flow
-- **Account Overview**: Fetches account balances from APIM
-- **Recent Transactions**: Displays transaction history (collapsible section)
-- **Secure Transfer**: Email OTP-protected transaction using secondary client
-- **Session Management**: Token refresh and RP-initiated logout
+### Authentication & Session Management
+- **OIDC/PKCE Login**: Authorization Code flow with Proof Key for Code Exchange
+- **Multi-Client Support**: Primary client for standard login, secondary client for OTP flows
+- **Token Management**: Automatic token refresh and sessionStorage persistence
+- **RP-Initiated Logout**: Secure logout with server-side session cleanup
+
+### Vehicle Management
+- **Vehicle Registry**: Add and view registered vehicles
+- **Vehicle Information**: Make, model, registration number, year, estimated value
+- **Insurance Status**: Track which vehicles are insured
+
+### Insurance Features
+- **Quote Generation**: Request insurance quotes for vehicles via APIM
+- **Email OTP Authentication**: Secure insurance purchase with OTP verification
+- **Policy Management**: View and manage active insurance policies
+
+### Chat Assistant (AI-Powered)
+- **Floating Chat Interface**: Collapsible chat widget in bottom-right corner
+- **Policy Inquiries**: Ask questions about vehicles and insurance
+- **MCP Integration**: Real-time vehicle and policy data retrieval
+- **Smart Context**: Detects policy-related questions and fetches relevant data
+- **Markdown Support**: Formatted responses with vehicle summaries and details
+
+---
+
+## API Integrations & MCP Servers
+
+### 1. Vehicle Management APIs
+
+**Endpoint**: `/vehicleManagement/1/getVehicles`
+- **Method**: POST
+- **Authentication**: Bearer Token (OAuth2)
+- **Purpose**: Retrieve list of registered vehicles for the user
+- **Response**: Array of Vehicle objects with details (make, model, registration, insurance status, etc.)
+
+**Endpoint**: `/vehicleManagement/1/addVehicle`
+- **Method**: POST
+- **Authentication**: Bearer Token (OAuth2)
+- **Purpose**: Register a new vehicle in the system
+- **Request**: Vehicle registration details
+- **Response**: Confirmation with vehicle ID
+
+### 2. Insurance Quote & Policy APIs
+
+**Endpoint**: `/insuranceQuote/1/getQuote`
+- **Method**: POST
+- **Authentication**: Bearer Token (OAuth2)
+- **Purpose**: Generate insurance quote for a vehicle
+- **Request**: Vehicle details and quote parameters
+- **Response**: Quote with premium, coverage, and terms
+
+**Endpoint**: `/policyManagement/1/purchasePolicy`
+- **Method**: POST
+- **Authentication**: Bearer Token (OAuth2)
+- **Purpose**: Purchase an insurance policy (OTP-protected)
+- **Request**: Policy details and OTP
+- **Response**: Policy confirmation and policy number
+
+### 3. Chat API Server (`/api-chat`)
+
+**Endpoint**: `POST /chat`
+- **Authentication**: Bearer Token (OAuth2)
+- **Purpose**: Submit chat message and receive AI response with policy data
+- **Request Body**:
+  ```json
+  {
+    "prompt": "Show me my vehicles"
+  }
+  ```
+- **Response**:
+  ```json
+  {
+    "response": "🚗 Your Vehicles...",
+    "hadPolicyInfo": true,
+    "policyInfoData": { ... }
+  }
+  ```
+
+**Endpoint**: `GET /health`
+- **Purpose**: Health check for the chat service
+- **Response**: Service status and mode information
+
+### 4. MCP Server Integration
+
+The chat API integrates with a **Model Context Protocol (MCP) server** exposed through APIM for policy data retrieval.
+
+**MCP Tool Call**:
+- **Tool**: `get_getVehicles`
+- **Method**: `tools/call`
+- **Endpoint**: `https://localhost:8243/PolicyInfoChatAPI/1/mcp`
+- **Authentication**: Bearer Token (from user session)
+- **Flow**:
+  1. Chat API detects policy keywords in user prompt
+  2. Calls MCP endpoint with `get_getVehicles` tool
+  3. Receives vehicle and insurance policy data
+  4. Generates contextual response using the data
+  5. Returns enriched response to client
+
+---
+
+## Authentication Flow Details
+
+### Standard OIDC/PKCE Flow (Login)
+
+```
+User clicks "Sign In"
+    ↓
+1. Generate PKCE Parameters:
+   - code_verifier (43+ char random string)
+   - code_challenge = SHA256(code_verifier)
+   - state (for CSRF protection)
+
+2. Store in sessionStorage:
+   sessionStorage.setItem("pkce_state", JSON.stringify({
+     code_verifier,
+     state,
+     redirect_uri
+   }))
+
+3. Redirect to IS Authorization Endpoint:
+   GET /oauth2/authorize?
+     client_id=CLIENT_ID&
+     response_type=code&
+     scope=openid+profile+email&
+     redirect_uri=http://localhost:5173&
+     code_challenge=BASE64(SHA256)&
+     code_challenge_method=S256&
+     state=RANDOM_STATE
+
+User authenticates and authorizes
+    ↓
+4. IS Redirects back with authorization code:
+   http://localhost:5173?code=AUTH_CODE&state=RETURNED_STATE
+
+5. App exchanges code for tokens:
+   POST /oauth2/token
+   - code: AUTH_CODE
+   - code_verifier: (retrieved from sessionStorage)
+   - client_id: CLIENT_ID
+   - grant_type: authorization_code
+   - redirect_uri: http://localhost:5173
+
+6. IS returns tokens:
+   {
+     access_token: "...",
+     id_token: "...",
+     refresh_token: "...",
+     expires_in: 3600
+   }
+
+7. Store tokens in sessionStorage
+
+8. Tokens used for all API calls:
+   Authorization: Bearer {access_token}
+```
+
+### Email OTP Flow (Secure Purchase)
+
+```
+User clicks "Purchase Policy"
+    ↓
+1. Initiate OTP Flow:
+   POST /oauth2/authorize
+   - client_id: CLIENT_ID2 (secondary client)
+   - username: (extracted from id_token)
+   - response_mode: direct
+
+2. IS returns flow metadata:
+   {
+     flowId: "...",
+     authenticatorId: "..."
+   }
+
+3. Show OTP Input UI to user
+
+User enters OTP
+    ↓
+4. Submit OTP:
+   POST /oauth2/authn
+   - flowId: (from step 2)
+   - authenticatorId: (from step 2)
+   - otp: USER_ENTERED_OTP
+
+5. IS validates OTP and returns auth code
+
+6. Exchange auth code for tokens:
+   POST /oauth2/token
+   - code: (from OTP validation)
+   - code_verifier: (PKCE verifier)
+   - client_id: CLIENT_ID2
+   - grant_type: authorization_code
+
+7. Use new tokens for secure operations
+```
+
+### Token Refresh Flow
+
+```
+When access_token expires:
+    ↓
+POST /oauth2/token
+- grant_type: refresh_token
+- refresh_token: (stored from login)
+- client_id: CLIENT_ID
+
+IS validates refresh token and returns new tokens
+    ↓
+Update sessionStorage with new tokens
+    ↓
+Retry original API call with new access_token
+```
+
+---
+
+## Chat Feature Flow
+
+### How Chat Works
+
+```
+User types message in Chat Panel
+    ↓
+1. ChatPanel.tsx (React Component):
+   - Validates input (not empty, authenticated)
+   - Adds message to chat history
+   - Sends POST /chat to localhost:3002
+
+2. Chat API Server (api-chat/server.js):
+   - Receives prompt + Bearer token
+   - Checks prompt keywords for policy content
+   - If policy-related:
+     a. Calls MCP server via APIM
+        POST https://localhost:8243/PolicyInfoChatAPI/1/mcp
+        Headers: Authorization: Bearer {accessToken}
+        Body: tools/call with get_getVehicles
+     b. Parses response: vehicle list, coverage, values
+
+3. Response Generation:
+   - Uses retrieved data (if any)
+   - Generates contextual markdown response
+   - Includes vehicle summaries, policy status, values
+
+4. Return Response:
+   {
+     response: "Formatted markdown with vehicle info",
+     hadPolicyInfo: true,
+     policyInfoData: { vehicles, customerId, ... }
+   }
+
+5. ChatPanel displays formatted response
+   - Auto-scrolls to latest message
+   - Renders markdown formatting
+   - Shows data source attribution
+```
+
+### Keywords Detected by Chat API
+
+Policy-related keywords that trigger MCP data retrieval:
+- `vehicle`, `car`, `insurance`, `policy`, `vehicles`, `cars`
+- `coverage`, `premium`, `insured`, `van`, `motorcycle`, `bike`
+- `registration`, `summary`, `overview`, `policies`
+
+### Chat Response Types
+
+**Without Policy Data**:
+- Generic helpful responses
+- Prompts user to ask about vehicles/insurance
+- Tips on available features
+
+**With Policy Data**:
+- Vehicle summaries with registration and insurance status
+- Insured vehicles list with policy details
+- Total vehicle values and individual valuations
+- Available actions per vehicle (quote, buy, view policy)
+- Filtered results (cars only, specific make, commercial vehicles)
 
 ---
 
@@ -195,6 +539,7 @@ Since both IS and APIM use self-signed certificates:
 - React StrictMode can double-invoke effects in development. This app prevents duplicate token exchanges using a ref gate and session storage tracking.
 - Tokens are persisted in `sessionStorage` for page reloads within the same session.
 - All sensitive operations (OTP, transactions) use bearer tokens from the configured Key Manager.
+- Chat API makes HTTPS requests with `rejectUnauthorized: false` for self-signed certificates in development.
 
 ---
 
