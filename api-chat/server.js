@@ -15,25 +15,20 @@ async function callMcpServer(accessToken) {
     const requestBody = {
       method: "tools/call",
       params: {
-        name: "post_recentTransactions",
-        arguments: {
-          requestBody: {
-            AccountNumber: "1234567",
-            Limit: 5
-          }
-        },
+        name: "get_getVehicles",
+        arguments: {},
         _meta: {
-          progressToken: 2
+          progressToken: 3
         }
       },
       jsonrpc: "2.0",
-      id: 1
+      id: 4
     };
 
     const options = {
       hostname: 'localhost',
       port: 8243,
-      path: '/FetchTransactionsMcp/1/mcp',
+      path: '/PolicyInfoChatAPI/1/mcp',
       method: 'POST',
       headers: {
         'Accept': 'application/json, text/event-stream',
@@ -62,76 +57,102 @@ async function callMcpServer(accessToken) {
   });
 }
 
-// Check if prompt refers to transactions
-function isTransactionRequest(prompt) {
-  const keywords = ['transaction', 'recent', 'history', 'activity', 'movements', 'transfers', 'spending', 'balance', 'account', 'expense', 'spend', 'spent'];
+// Check if prompt refers to policy information
+function isPolicyInfoRequest(prompt) {
+  const keywords = ['vehicle', 'car', 'insurance', 'policy', 'vehicles', 'cars', 'coverage', 'premium', 'insured', 'van', 'motorcycle', 'bike', 'registration', 'summary', 'overview', 'policies'];
   const lowerPrompt = prompt.toLowerCase();
   return keywords.some(keyword => lowerPrompt.includes(keyword));
 }
 
-// Generate response based on prompt and optional transaction data
-function generateResponse(prompt, transactionData) {
+// Generate response based on prompt and optional policy info data
+function generateResponse(prompt, policyInfoData) {
   const lowerPrompt = prompt.toLowerCase();
 
-  // If we have transaction data, generate data-driven response
-  if (transactionData) {
-    const txList = transactionData.GetRecentTransactionsResponse?.Transaction || [];
+  // If we have policy info data, generate data-driven response
+  if (policyInfoData) {
+    const vehicles = policyInfoData.vehicles || [];
 
-    if (txList.length === 0) {
-      return "I retrieved your transaction data, but there are no recent transactions to display. Your account appears to have no activity in the selected period.";
+    if (vehicles.length === 0) {
+      return "I retrieved your policy information, but there are no vehicles registered in your account.";
     }
-
-    const totalDebit = txList.filter(t => t.Amount < 0).reduce((sum, t) => sum + t.Amount, 0);
-    const totalCredit = txList.filter(t => t.Amount > 0).reduce((sum, t) => sum + t.Amount, 0);
-    const netFlow = totalCredit + totalDebit;
 
     // Generate contextual responses based on the prompt
     if (lowerPrompt.includes('summary') || lowerPrompt.includes('overview')) {
       console.log('[CHAT] Matched: summary/overview');
-      return `📊 **Transaction Summary**\n\nYou have ${txList.length} recent transactions:\n\n💰 **Credits:** ${totalCredit.toLocaleString('en-US', {style: 'currency', currency: 'USD'})}\n💸 **Debits:** ${Math.abs(totalDebit).toLocaleString('en-US', {style: 'currency', currency: 'USD'})}\n📈 **Net Flow:** ${netFlow.toLocaleString('en-US', {style: 'currency', currency: 'USD'})}`;
+      const insuredCount = vehicles.filter(v => v.insuranceStatus?.isInsured).length;
+      return `🚗 **Vehicle & Insurance Summary**\n\nCustomer ID: ${policyInfoData.customerId}\nTotal Vehicles: ${vehicles.length}\nInsured Vehicles: ${insuredCount}\n\n${vehicles.map((v, i) => `${i + 1}. **${v.make} ${v.model}** (${v.type})\n   Registration: ${v.registrationNumber}\n   Insured: ${v.insuranceStatus?.isInsured ? '✅ Yes' : '❌ No'}\n   Policy ID: ${v.insuranceStatus?.policyId || 'N/A'}`).join('\n\n')}`;
     }
 
-    if (lowerPrompt.includes('spending') || lowerPrompt.includes('expense') || lowerPrompt.includes('spend')) {
-      console.log('[CHAT] Matched: spending/expense/spend');
-      return `💳 **Spending Analysis**\n\nTotal spent: ${Math.abs(totalDebit).toLocaleString('en-US', {style: 'currency', currency: 'USD'})}\nTotal received: ${totalCredit.toLocaleString('en-US', {style: 'currency', currency: 'USD'})}\n\nRecent activity:\n${txList.slice(0, 3).map((t, i) => `${i + 1}. ${t.Description} - ${t.Amount.toLocaleString('en-US', {style: 'currency', currency: 'USD'})} (${t.Date})`).join('\n')}`;
+    if (lowerPrompt.includes('insured') || lowerPrompt.includes('coverage') || lowerPrompt.includes('policy')) {
+      console.log('[CHAT] Matched: insured/coverage/policy');
+      const insuredVehicles = vehicles.filter(v => v.insuranceStatus?.isInsured);
+      if (insuredVehicles.length === 0) {
+        return "None of your vehicles currently have active insurance coverage.";
+      }
+      return `📋 **Insured Vehicles**\n\n${insuredVehicles.map((v, i) => `${i + 1}. **${v.make} ${v.model}** (${v.registrationNumber})\n   Policy ID: ${v.insuranceStatus?.policyId}\n   Insured Until: ${v.insuranceStatus?.insuredUntil}\n   Value: ${v.estimatedValue.toLocaleString('en-US')} ${v.currency}`).join('\n\n')}`;
     }
 
-    if (lowerPrompt.includes('recent') || lowerPrompt.includes('latest') || lowerPrompt.includes('last')) {
-      console.log('[CHAT] Matched: recent/latest/last');
-      return `📋 **Recent Transactions**\n\n${txList.map((t, i) => `${i + 1}. **${t.Description}**\n   Amount: ${t.Amount.toLocaleString('en-US', {style: 'currency', currency: 'USD'})}\n   Date: ${t.Date}`).join('\n\n')}`;
+    if (lowerPrompt.includes('value') || lowerPrompt.includes('worth') || lowerPrompt.includes('price')) {
+      console.log('[CHAT] Matched: value/worth/price');
+      const totalValue = vehicles.reduce((sum, v) => sum + v.estimatedValue, 0);
+      return `💰 **Vehicle Values**\n\nTotal Estimated Value: ${totalValue.toLocaleString('en-US')} LKR\n\n${vehicles.map((v, i) => `${i + 1}. ${v.make} ${v.model} - ${v.estimatedValue.toLocaleString('en-US')} LKR`).join('\n')}`;
     }
 
-    if (lowerPrompt.includes('highest') || lowerPrompt.includes('largest') || lowerPrompt.includes('biggest')) {
-      console.log('[CHAT] Matched: highest/largest/biggest');
-      const largest = txList.reduce((max, t) => Math.abs(t.Amount) > Math.abs(max.Amount) ? t : max);
-      return `💰 **Largest Transaction**\n\n${largest.Description}\nAmount: ${largest.Amount.toLocaleString('en-US', {style: 'currency', currency: 'USD'})}\nDate: ${largest.Date}`;
+    if (lowerPrompt.includes('action') || lowerPrompt.includes('available')) {
+      console.log('[CHAT] Matched: action/available');
+      return `🔧 **Available Actions by Vehicle**\n\n${vehicles.map((v, i) => `${i + 1}. **${v.make} ${v.model}** (${v.registrationNumber})\n   Get Quote: ${v.actionsAvailable?.canGetQuote ? '✅' : '❌'}\n   Buy Insurance: ${v.actionsAvailable?.canBuyInsurance ? '✅' : '❌'}\n   View Policy: ${v.actionsAvailable?.canViewPolicy ? '✅' : '❌'}`).join('\n\n')}`;
     }
 
-    if (lowerPrompt.includes('average')) {
-      console.log('[CHAT] Matched: average');
-      const avgTransaction = txList.length > 0 ? netFlow / txList.length : 0;
-      return `📊 **Average Transaction**\n\nAverage per transaction: ${avgTransaction.toLocaleString('en-US', {style: 'currency', currency: 'USD'})}\nTotal transactions: ${txList.length}\nPeriod: Last ${txList.length} transactions`;
+    // Check for car-only filter
+    if (lowerPrompt.includes('car') && !lowerPrompt.includes('motorcycle') && !lowerPrompt.includes('van') && !lowerPrompt.includes('truck')) {
+      console.log('[CHAT] Matched: cars only');
+      const cars = vehicles.filter(v => v.type === 'CAR');
+      if (cars.length === 0) {
+        return "You don't have any cars registered in your account.";
+      }
+      return `🚗 **Your Cars**\n\n${cars.map((v, i) => `${i + 1}. **${v.make} ${v.model}**\n   Registration: ${v.registrationNumber}\n   Year: ${v.manufactureYear}\n   Estimated Value: ${v.estimatedValue.toLocaleString('en-US')} ${v.currency}\n   Insurance Status: ${v.insuranceStatus?.isInsured ? '✅ Insured' : '❌ Not Insured'}\n   Policy ID: ${v.insuranceStatus?.policyId || 'N/A'}\n   Insured Until: ${v.insuranceStatus?.insuredUntil || 'N/A'}`).join('\n\n')}`;
     }
 
-    // Default response with transaction data
-    console.log('[CHAT] Matched: default (has transaction data)');
-    const txDetails = txList.map((t, i) => `${i + 1}. **${t.Description}**\n   Amount: ${t.Amount.toLocaleString('en-US', {style: 'currency', currency: 'USD'})}\n   Date: ${t.Date}`).join('\n\n');
-    return `📋 **Recent Transactions**\n\n${txDetails}`;
+    // Check for specific make/brand filter
+    const makes = ['toyota', 'honda', 'bmw', 'mercedes', 'audi', 'ford', 'hyundai', 'kia', 'volkswagen', 'nissan', 'mazda', 'suzuki', 'chevrolet', 'renault', 'tata', 'mahindra', 'skoda'];
+    const detectedMake = makes.find(make => lowerPrompt.includes(make));
+    if (detectedMake) {
+      console.log(`[CHAT] Matched: make filter - ${detectedMake}`);
+      const filteredVehicles = vehicles.filter(v => v.make.toLowerCase() === detectedMake);
+      if (filteredVehicles.length === 0) {
+        return `You don't have any ${detectedMake.charAt(0).toUpperCase() + detectedMake.slice(1)} vehicles registered in your account.`;
+      }
+      const capitalizedMake = detectedMake.charAt(0).toUpperCase() + detectedMake.slice(1);
+      return `🚗 **Your ${capitalizedMake} Vehicles**\n\n${filteredVehicles.map((v, i) => `${i + 1}. **${v.make} ${v.model}** (${v.type})\n   Registration: ${v.registrationNumber}\n   Year: ${v.manufactureYear}\n   Estimated Value: ${v.estimatedValue.toLocaleString('en-US')} ${v.currency}\n   Insurance Status: ${v.insuranceStatus?.isInsured ? '✅ Insured' : '❌ Not Insured'}\n   Policy ID: ${v.insuranceStatus?.policyId || 'N/A'}\n   Insured Until: ${v.insuranceStatus?.insuredUntil || 'N/A'}`).join('\n\n')}`;
+    }
+
+    if (lowerPrompt.includes('van') || lowerPrompt.includes('truck')) {
+      console.log('[CHAT] Matched: van/truck');
+      const commercialVehicles = vehicles.filter(v => ['VAN', 'TRUCK', 'BUS'].includes(v.type));
+      if (commercialVehicles.length === 0) {
+        return "You don't have any vans or trucks registered.";
+      }
+      return `🚐 **Commercial Vehicles**\n\n${commercialVehicles.map((v, i) => `${i + 1}. **${v.make} ${v.model}** (${v.type})\n   Registration: ${v.registrationNumber}\n   Year: ${v.manufactureYear}\n   Insured: ${v.insuranceStatus?.isInsured ? '✅' : '❌'}`).join('\n\n')}`;
+    }
+
+    // Default response with policy data
+    console.log('[CHAT] Matched: default (has policy data)');
+    return `🚗 **Your Vehicles**\n\nCustomer ID: ${policyInfoData.customerId}\n\n${vehicles.map((v, i) => `${i + 1}. **${v.make} ${v.model}** (${v.type})\n   Registration: ${v.registrationNumber}\n   Year: ${v.manufactureYear}\n   Estimated Value: ${v.estimatedValue.toLocaleString('en-US')} ${v.currency}\n   Insurance Status: ${v.insuranceStatus?.isInsured ? '✅ Insured' : '❌ Not Insured'}`).join('\n\n')}`;
   }
 
-  // No transaction data - provide helpful response
-  if (lowerPrompt.includes('transaction') || lowerPrompt.includes('recent') || lowerPrompt.includes('history')) {
-    console.log('[CHAT] Matched: no transaction data path');
-    return "I'd like to help you with your transactions! Please click the \"Fetch Recent Transactions\" button in the accounts section first to retrieve your transaction data, and then ask me again. I can then provide insights on your spending patterns, account activity, and transaction details.";
+  // No policy data - provide helpful response
+  if (lowerPrompt.includes('vehicle') || lowerPrompt.includes('car') || lowerPrompt.includes('insurance')) {
+    console.log('[CHAT] Matched: no policy data path');
+    return "I'd like to help you with your vehicle and insurance information! Please ensure your policy data is loaded first, and then ask me again. I can provide insights on your vehicles, insurance coverage, and available actions.";
   }
 
-  // General banking questions
+  // General insurance questions
   if (lowerPrompt.includes('help') || lowerPrompt.includes('what can') || lowerPrompt.includes('how can')) {
-    return "I'm your banking assistant! 🏦 I can help you with:\n\n📊 **Transaction Analysis** - View and analyze your recent transactions\n💰 **Spending Insights** - Understand your spending patterns\n📋 **Account Activity** - Review your account movements\n💳 **Transaction Details** - Get details about specific transactions\n\nJust ask me about your transactions or account activity, and I'll provide detailed insights!";
+    return "I'm your insurance assistant! 🛡️ I can help you with:\n\n🚗 **Vehicle Information** - View your registered vehicles\n📋 **Insurance Coverage** - Check your active policies\n💰 **Vehicle Values** - See estimated values of your vehicles\n🔧 **Available Actions** - Discover what you can do with each vehicle\n\nJust ask me about your vehicles or insurance policies!";
   }
 
   // Default greeting/response
-  return "Hello! 👋 I'm your banking assistant. I can help you understand your account activity and transactions. Try asking me about:\n\n• Your recent transactions\n• Your spending patterns\n• Your transaction history\n• Account movements\n\nFirst, make sure to click \"Fetch Recent Transactions\" to load your data!";
+  return "Hello! 👋 I'm your insurance assistant. I can help you with your vehicle and insurance information. Try asking me about:\n\n• Your vehicles\n• Insurance coverage status\n• Vehicle values\n• Available actions on your policies\n\nJust ask me anything about your vehicles and insurance!";
 }
 
 // Chat endpoint
@@ -149,44 +170,44 @@ app.post('/chat', async (req, res) => {
     }
 
     const accessToken = authHeader.substring(7);
-    let transactionData = null;
+    let policyInfoData = null;
 
     // Step 1: Analyze prompt locally
-    const needsTransactions = isTransactionRequest(prompt);
+    const needsPolicyInfo = isPolicyInfoRequest(prompt);
     console.log(`[CHAT] User prompt: "${prompt}"`);
-    console.log(`[CHAT] Needs transaction data: ${needsTransactions}`);
+    console.log(`[CHAT] Needs policy info data: ${needsPolicyInfo}`);
     console.log(`[CHAT] Access Token (first 20 chars): ${accessToken.substring(0, 20)}...`);
 
-    // Step 2: If transaction data is needed, call MCP server
-    if (needsTransactions) {
+    // Step 2: If policy info is needed, call MCP server
+    if (needsPolicyInfo) {
       try {
-        console.log('[CHAT] Fetching transaction data from MCP server...');
+        console.log('[CHAT] Fetching policy info data from MCP server...');
         const mcpResponse = await callMcpServer(accessToken);
         console.log('[CHAT] MCP Response:', JSON.stringify(mcpResponse, null, 2));
 
-        // Extract transaction data from MCP response
+        // Extract policy info data from MCP response
         if (mcpResponse.result && mcpResponse.result.content && mcpResponse.result.content[0]) {
           const contentText = mcpResponse.result.content[0].text;
-          transactionData = JSON.parse(contentText);
-          console.log('[CHAT] Transaction data retrieved successfully');
+          policyInfoData = JSON.parse(contentText);
+          console.log('[CHAT] Policy info data retrieved successfully');
         } else {
           console.log('[CHAT] MCP response missing expected structure. Result:', mcpResponse.result);
         }
       } catch (e) {
         console.error('[CHAT] MCP call failed:', e.message);
         console.error('[CHAT] Error stack:', e.stack);
-        // Continue without transaction data
+        // Continue without policy info data
       }
     }
 
     // Step 3: Generate response locally
-    const responseText = generateResponse(prompt, transactionData);
+    const responseText = generateResponse(prompt, policyInfoData);
     console.log('[CHAT] Response generated');
 
     res.json({
       response: responseText,
-      hadTransactions: !!transactionData,
-      transactionData: transactionData || null
+      hadPolicyInfo: !!policyInfoData,
+      policyInfoData: policyInfoData || null
     });
 
   } catch (error) {
@@ -202,8 +223,8 @@ app.post('/chat', async (req, res) => {
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
-    service: 'bank-oidc-chat-api',
-    mode: 'Local Analysis + MCP Integration'
+    service: 'insurance-policy-chat-api',
+    mode: 'Local Analysis + Policy Info MCP Integration'
   });
 });
 
@@ -211,7 +232,7 @@ app.get('/health', (req, res) => {
 app.listen(PORT, () => {
   console.log(`\n🚀 Chat API Server Started`);
   console.log(`📍 Port: ${PORT}`);
-  console.log(`🤖 Mode: Local prompt analysis with APIM MCP integration`);
+  console.log(`🤖 Mode: Local prompt analysis with PolicyInfoChatAPI MCP integration`);
   console.log(`\n📡 Endpoints:`);
   console.log(`   POST http://localhost:${PORT}/chat - Submit chat message`);
   console.log(`   GET  http://localhost:${PORT}/health - Health check\n`);
